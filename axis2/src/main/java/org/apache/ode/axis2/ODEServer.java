@@ -81,6 +81,7 @@ import org.apache.ode.scheduler.simple.SimpleScheduler;
 import org.apache.ode.store.ProcessStoreImpl;
 import org.apache.ode.utils.GUID;
 import org.apache.ode.utils.fs.TempFileManager;
+import org.apache.ode.clustering.hazelcast.HazelcastInstanceConfig;
 
 /**
  * Server class called by our Axis hooks to handle all ODE lifecycle management.
@@ -132,6 +133,8 @@ public class ODEServer {
     protected IdleConnectionTimeoutThread idleConnectionTimeoutThread;
     
     public Runnable txMgrCreatedCallback;
+
+    private HazelcastInstanceConfig hazelcastInstanceConfig;
 
     public void init(ServletConfig config, ConfigurationContext configContext) throws ServletException {
         init(config.getServletContext().getRealPath("/WEB-INF"), configContext);
@@ -231,6 +234,10 @@ public class ODEServer {
 
         __log.debug("Initializing JCA adapter.");
         initConnector();
+
+        String clusteringState = _odeConfig.getClusteringState();
+        if (clusteringState.equals("true")) initClustering();
+        else __log.info("Clustering has not been initialized");
 
         _poller.start();
         __log.info(__msgs.msgPollingStarted(_store.getDeployDir().getAbsolutePath()));
@@ -452,6 +459,20 @@ public class ODEServer {
             } catch (Exception e) {
                 __log.error("Failed to initialize JCA connector.", e);
             }
+        }
+    }
+
+    /**
+     *   Initialize the clustering if it is enabled
+     */
+    private void initClustering() {
+        String hzConfig = System.getProperty("hazelcast.config");
+        if (hzConfig != null) hazelcastInstanceConfig = new HazelcastInstanceConfig();
+        else {
+            File hzXml = new File(_configRoot, "hazelcast.xml");
+            if (!hzXml.isFile())
+                throw new IllegalArgumentException("hazelcast.xml does not exist or is not a file");
+            else hazelcastInstanceConfig = new HazelcastInstanceConfig(hzXml);
         }
     }
 
