@@ -18,13 +18,9 @@
 */
 package org.apache.ode.clustering.hazelcast;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
 import com.hazelcast.config.Config;
 import com.hazelcast.config.FileSystemXmlConfig;
-import com.hazelcast.core.Hazelcast;
-import com.hazelcast.core.HazelcastInstance;
+import com.hazelcast.core.*;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -35,19 +31,21 @@ import java.io.FileNotFoundException;
  * Else it will load the hazelcast.xml file using FileSystemXmlConfig()
  */
 public class HazelcastInstanceConfig {
-    private static Log __log = LogFactory.getLog(HazelcastInstanceConfig.class);
     private HazelcastInstance hazelcastInstance;
 
     public HazelcastInstanceConfig() {
         hazelcastInstance = Hazelcast.newHazelcastInstance();
     }
 
+    /**
+     *
+     * @param hzXml
+     */
     public HazelcastInstanceConfig(File hzXml) {
         try {
             Config config = new FileSystemXmlConfig(hzXml);
             hazelcastInstance = Hazelcast.newHazelcastInstance(config);
         } catch (FileNotFoundException fnf) {
-            __log.error("Unable to find hazelcast.xml file" + fnf);
         }
     }
 

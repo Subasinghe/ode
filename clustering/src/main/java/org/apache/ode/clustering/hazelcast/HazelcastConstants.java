@@ -21,7 +21,7 @@ package org.apache.ode.clustering.hazelcast;
  * Constants used in Hazelcast based clustering implementation
  */
 public final class HazelcastConstants {
-    public static final String PATH_TO_HAZELCAST_XML = "";
+    public static final String ODE_CLUSTER_NODE_MAP = "ODE_NODE_ID_MAP";
 
     private HazelcastConstants() {
     }

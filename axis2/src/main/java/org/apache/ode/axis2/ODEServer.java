@@ -81,7 +81,10 @@ import org.apache.ode.scheduler.simple.SimpleScheduler;
 import org.apache.ode.store.ProcessStoreImpl;
 import org.apache.ode.utils.GUID;
 import org.apache.ode.utils.fs.TempFileManager;
+
 import org.apache.ode.clustering.hazelcast.HazelcastInstanceConfig;
+import org.apache.ode.clustering.hazelcast.HazelcastClusterImpl;
+import com.hazelcast.core.HazelcastInstance;
 
 /**
  * Server class called by our Axis hooks to handle all ODE lifecycle management.
@@ -136,6 +139,8 @@ public class ODEServer {
 
     private HazelcastInstanceConfig hazelcastInstanceConfig;
 
+    private HazelcastClusterImpl hazelcastClusterImpl;
+
     public void init(ServletConfig config, ConfigurationContext configContext) throws ServletException {
         init(config.getServletContext().getRealPath("/WEB-INF"), configContext);
     }
@@ -187,6 +192,11 @@ public class ODEServer {
         if (txMgrCreatedCallback != null) {
             txMgrCreatedCallback.run();
         }
+
+        String clusteringState = _odeConfig.getClusteringState();
+        if (clusteringState.equals("true")) initClustering();
+        else __log.info("Clustering has not been initialized");
+
         __log.debug("Creating data source.");
         initDataSource();
         __log.debug("Starting DAO.");
@@ -234,10 +244,6 @@ public class ODEServer {
 
         __log.debug("Initializing JCA adapter.");
         initConnector();
-
-        String clusteringState = _odeConfig.getClusteringState();
-        if (clusteringState.equals("true")) initClustering();
-        else __log.info("Clustering has not been initialized");
 
         _poller.start();
         __log.info(__msgs.msgPollingStarted(_store.getDeployDir().getAbsolutePath()));
@@ -471,8 +477,11 @@ public class ODEServer {
         else {
             File hzXml = new File(_configRoot, "hazelcast.xml");
             if (!hzXml.isFile())
-                throw new IllegalArgumentException("hazelcast.xml does not exist or is not a file");
+                __log.error("hazelcast.xml does not exist or is not a file");
             else hazelcastInstanceConfig = new HazelcastInstanceConfig(hzXml);
+        }
+        if (hazelcastInstanceConfig != null)  {
+            hazelcastClusterImpl = new HazelcastClusterImpl(hazelcastInstanceConfig.getHazelcastInstance());
         }
     }
 
@@ -554,6 +563,7 @@ public class ODEServer {
         _bpelServer.setCronScheduler(_cronScheduler);
 
         _bpelServer.setDaoConnectionFactory(_daoCF);
+        _bpelServer.setHazelcastCluster(hazelcastClusterImpl);
         _bpelServer.setInMemDaoConnectionFactory(new BpelDAOConnectionFactoryImpl(_scheduler, _odeConfig.getInMemMexTtl()));
         _bpelServer.setEndpointReferenceContext(eprContext);
         _bpelServer.setMessageExchangeContext(new MessageExchangeContextImpl(this));
