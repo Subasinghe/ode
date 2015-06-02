@@ -175,7 +175,7 @@ public class ProcessStoreImpl implements ProcessStore {
     /**
      * Deploys a process.
      */
-    public Collection<QName> deploy(final File deploymentUnitDirectory, boolean activate, String duName, boolean autoincrementVersion) {
+   public Collection<QName> deploy(final File deploymentUnitDirectory, boolean activate, String duName, boolean autoincrementVersion) {
         __log.info(__msgs.msgDeployStarting(deploymentUnitDirectory));
 
         final Date deployDate = new Date();
@@ -849,6 +849,10 @@ public class ProcessStoreImpl implements ProcessStore {
         if (configDir != null && !configDir.isDirectory())
             throw new IllegalArgumentException("Config directory is not a directory or does not exist: " + configDir);
         this._configDir = configDir;
+    }
+
+    public void setDeploymentUnitsMap(Map<String, DeploymentUnitDir> deploymentUnits) {
+        _deploymentUnits = deploymentUnits;
     }
 
     public static DataSource createInternalDS(String guid) {

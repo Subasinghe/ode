@@ -23,11 +23,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Properties;
-import java.util.StringTokenizer;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -78,13 +74,13 @@ import org.apache.ode.il.config.OdeConfigProperties;
 import org.apache.ode.il.dbutil.Database;
 import org.apache.ode.scheduler.simple.JdbcDelegate;
 import org.apache.ode.scheduler.simple.SimpleScheduler;
+import org.apache.ode.store.DeploymentUnitDir;
 import org.apache.ode.store.ProcessStoreImpl;
 import org.apache.ode.utils.GUID;
 import org.apache.ode.utils.fs.TempFileManager;
 
-import org.apache.ode.clustering.hazelcast.HazelcastInstanceConfig;
-import org.apache.ode.clustering.hazelcast.HazelcastClusterImpl;
-import com.hazelcast.core.HazelcastInstance;
+import org.apache.ode.clustering.hazelcast.*;
+import com.hazelcast.core.*;
 
 /**
  * Server class called by our Axis hooks to handle all ODE lifecycle management.
@@ -134,12 +130,16 @@ public class ODEServer {
 
     protected MultiThreadedHttpConnectionManager httpConnectionManager;
     protected IdleConnectionTimeoutThread idleConnectionTimeoutThread;
-    
+
     public Runnable txMgrCreatedCallback;
 
     private HazelcastInstanceConfig hazelcastInstanceConfig;
 
     private HazelcastClusterImpl hazelcastClusterImpl;
+
+    private HazelcastInstance hazelcastInstance;
+
+    private String clusteringState = "";
 
     public void init(ServletConfig config, ConfigurationContext configContext) throws ServletException {
         init(config.getServletContext().getRealPath("/WEB-INF"), configContext);
@@ -148,7 +148,7 @@ public class ODEServer {
     public void init(String contextPath, ConfigurationContext configContext) throws ServletException {
         init(contextPath, configContext, null);
     }
-    
+
     public void init(String contextPath, ConfigurationContext configContext, ODEConfigProperties config) throws ServletException {
         _configContext = configContext;
         String rootDir = System.getProperty("org.apache.ode.rootDir");
@@ -177,13 +177,13 @@ public class ODEServer {
             __log.warn(errmsg);
         } catch (Exception ex) {
             String errmsg = __msgs.msgOdeInstallErrorCfgReadError(_odeConfig.getFile());
-                __log.error(errmsg, ex);
-                throw new ServletException(errmsg, ex);
-            }
+            __log.error(errmsg, ex);
+            throw new ServletException(errmsg, ex);
+        }
 
-            String wdir = _odeConfig.getWorkingDir();
-            if (wdir == null) _workRoot = _appRoot;
-            else _workRoot = new File(wdir.trim());
+        String wdir = _odeConfig.getWorkingDir();
+        if (wdir == null) _workRoot = _appRoot;
+        else _workRoot = new File(wdir.trim());
         if (!_workRoot.isDirectory())
             throw new IllegalArgumentException(_workRoot + " does not exist or is not a directory");
 
@@ -193,8 +193,8 @@ public class ODEServer {
             txMgrCreatedCallback.run();
         }
 
-        String clusteringState = _odeConfig.getClusteringState();
-        if (clusteringState.equals("true")) initClustering();
+        clusteringState = _odeConfig.getClusteringState();
+        if (isClusteringEnabled()) initClustering();
         else __log.info("Clustering has not been initialized");
 
         __log.debug("Creating data source.");
@@ -225,7 +225,7 @@ public class ODEServer {
         }
 
         _poller = getDeploymentPollerExt();
-        if( _poller == null ) {
+        if (_poller == null) {
             _poller = new DeploymentPoller(_store.getDeployDir(), this);
         }
 
@@ -257,27 +257,27 @@ public class ODEServer {
         InputStream is = null;
         try {
             is = ODEServer.class.getResourceAsStream("/deploy-ext.properties");
-            if( is != null ) {
+            if (is != null) {
                 __log.info("A deploy-ext.properties found; will use the provided class if applicable.");
                 try {
                     Properties props = new Properties();
                     props.load(is);
                     String deploymentPollerClass = props.getProperty("deploymentPoller.class");
-                    if( deploymentPollerClass == null ) {
+                    if (deploymentPollerClass == null) {
                         __log.warn("deploy-ext.properties found in the class path; however, the file does not have 'deploymentPoller.class' as one of the properties!!");
                     } else {
                         Class pollerClass = Class.forName(deploymentPollerClass);
-                        poller = (DeploymentPoller)pollerClass.getConstructor(File.class, ODEServer.class).newInstance(_store.getDeployDir(), this);
+                        poller = (DeploymentPoller) pollerClass.getConstructor(File.class, ODEServer.class).newInstance(_store.getDeployDir(), this);
                         __log.info("A custom deployment poller: " + deploymentPollerClass + " has been plugged in.");
                     }
-                } catch( Exception e ) {
+                } catch (Exception e) {
                     __log.warn("Deployment poller extension class is not loadable, falling back to the default DeploymentPoller.", e);
                 }
-            } else if( __log.isDebugEnabled() ) __log.debug("No deploy-ext.properties found.");
+            } else if (__log.isDebugEnabled()) __log.debug("No deploy-ext.properties found.");
         } finally {
             try {
-                if(is != null) is.close();
-            } catch( IOException ie ) {
+                if (is != null) is.close();
+            } catch (IOException ie) {
                 // ignore
             }
         }
@@ -333,7 +333,7 @@ public class ODEServer {
                     __log.debug("Error stopping services.", ex);
                 }
 
-            if( _cronScheduler != null ) {
+            if (_cronScheduler != null) {
                 try {
                     __log.debug("shutting down cron scheduler.");
                     _cronScheduler.shutdown();
@@ -398,7 +398,7 @@ public class ODEServer {
                 try {
                     httpConnectionManager.shutdown();
                     httpConnectionManager = null;
-                } catch(Throwable t) {
+                } catch (Throwable t) {
                     __log.error("Unable to shut down HTTP connection manager.", t);
                 }
             }
@@ -407,7 +407,7 @@ public class ODEServer {
                 try {
                     idleConnectionTimeoutThread.shutdown();
                     idleConnectionTimeoutThread = null;
-                } catch(Throwable t) {
+                } catch (Throwable t) {
                     __log.error("Unable to shut down Idle Connection Timeout Thread.", t);
                 }
             }
@@ -430,12 +430,12 @@ public class ODEServer {
     }
 
     @SuppressWarnings("unchecked")
-     private void initTxMgr() throws ServletException {
+    private void initTxMgr() throws ServletException {
         if (_odeConfig.getDbMode().equals(OdeConfigProperties.DatabaseMode.EXTERNAL) &&
                 _odeConfig.getTxFactoryClass().equals(OdeConfigProperties.DEFAULT_TX_FACTORY_CLASS_NAME)) {
             throw new ServletException("No external transaction manager factory configured. Please use the INTERNAL mode or configure an external transaction manager that is associated with external datasource.");
         }
-        
+
         String txFactoryName = _odeConfig.getTxFactoryClass();
         __log.debug("Initializing transaction manager using " + txFactoryName);
         try {
@@ -469,7 +469,7 @@ public class ODEServer {
     }
 
     /**
-     *   Initialize the clustering if it is enabled
+     * Initialize the clustering if it is enabled
      */
     private void initClustering() {
         String hzConfig = System.getProperty("hazelcast.config");
@@ -480,9 +480,15 @@ public class ODEServer {
                 __log.error("hazelcast.xml does not exist or is not a file");
             else hazelcastInstanceConfig = new HazelcastInstanceConfig(hzXml);
         }
-        if (hazelcastInstanceConfig != null)  {
-            hazelcastClusterImpl = new HazelcastClusterImpl(hazelcastInstanceConfig.getHazelcastInstance());
+        if (hazelcastInstanceConfig != null) {
+            hazelcastInstance = hazelcastInstanceConfig.getHazelcastInstance();
+            hazelcastClusterImpl = new HazelcastClusterImpl(hazelcastInstance);
         }
+    }
+
+    public boolean isClusteringEnabled() {
+        if (clusteringState.equals("true")) return true;
+        else return false;
     }
 
     /**
@@ -507,10 +513,15 @@ public class ODEServer {
         _store.registerListener(new ProcessStoreListenerImpl());
         _store.setDeployDir(
                 _odeConfig.getDeployDir() != null ?
-                    new File(_odeConfig.getDeployDir()) :
-                    new File(_workRoot, "processes"));
+                        new File(_odeConfig.getDeployDir()) :
+                        new File(_workRoot, "processes"));
         _store.setConfigDir(_configRoot);
+        if (isClusteringEnabled()) {
+            Map<String, DeploymentUnitDir> deploymentUnits = hazelcastInstance.getMap(HazelcastConstants.ODE_CLUSTER_DEPLOYMENT_UNITS_MAP);
+            _store.setDeploymentUnitsMap(deploymentUnits);
+        }
     }
+
 
     protected ProcessStoreImpl createProcessStore(EndpointReferenceContext eprContext, DataSource ds) {
         return new ProcessStoreImpl(eprContext, ds, _odeConfig.getDAOConnectionFactory(), _odeConfig, false);
@@ -530,9 +541,10 @@ public class ODEServer {
         }
         ThreadFactory threadFactory = new ThreadFactory() {
             int threadNumber = 0;
+
             public Thread newThread(Runnable r) {
                 threadNumber += 1;
-                Thread t = new Thread(r, "ODEServer-"+threadNumber);
+                Thread t = new Thread(r, "ODEServer-" + threadNumber);
                 t.setDaemon(true);
                 return t;
             }
@@ -589,14 +601,14 @@ public class ODEServer {
         httpConnectionManager = new MultiThreadedHttpConnectionManager();
         // settings may be overridden from ode-axis2.properties using the same properties as HttpClient
         // /!\ If the size of the conn pool is smaller than the size of the thread pool, the thread pool might get starved.
-        int max_per_host = Integer.parseInt(_odeConfig.getProperty(HttpConnectionManagerParams.MAX_HOST_CONNECTIONS, ""+_odeConfig.getPoolMaxSize()));
-        int max_total = Integer.parseInt(_odeConfig.getProperty(HttpConnectionManagerParams.MAX_TOTAL_CONNECTIONS, ""+_odeConfig.getPoolMaxSize()));
-        if(__log.isDebugEnabled()) {
-            __log.debug(HttpConnectionManagerParams.MAX_HOST_CONNECTIONS+"="+max_per_host);
-            __log.debug(HttpConnectionManagerParams.MAX_TOTAL_CONNECTIONS+"="+max_total);
+        int max_per_host = Integer.parseInt(_odeConfig.getProperty(HttpConnectionManagerParams.MAX_HOST_CONNECTIONS, "" + _odeConfig.getPoolMaxSize()));
+        int max_total = Integer.parseInt(_odeConfig.getProperty(HttpConnectionManagerParams.MAX_TOTAL_CONNECTIONS, "" + _odeConfig.getPoolMaxSize()));
+        if (__log.isDebugEnabled()) {
+            __log.debug(HttpConnectionManagerParams.MAX_HOST_CONNECTIONS + "=" + max_per_host);
+            __log.debug(HttpConnectionManagerParams.MAX_TOTAL_CONNECTIONS + "=" + max_total);
         }
-        if(max_per_host<1 || max_total <1){
-            String errmsg = HttpConnectionManagerParams.MAX_HOST_CONNECTIONS+" and "+ HttpConnectionManagerParams.MAX_TOTAL_CONNECTIONS+" must be positive integers!";
+        if (max_per_host < 1 || max_total < 1) {
+            String errmsg = HttpConnectionManagerParams.MAX_HOST_CONNECTIONS + " and " + HttpConnectionManagerParams.MAX_TOTAL_CONNECTIONS + " must be positive integers!";
             __log.error(errmsg);
             throw new ServletException(errmsg);
         }
@@ -609,9 +621,9 @@ public class ODEServer {
         long idleConnectionTimeout = Long.parseLong(_odeConfig.getProperty("http.idle.connection.timeout", "30000"));
         long idleConnectionCheckInterval = Long.parseLong(_odeConfig.getProperty("http.idle.connection.check.interval", "30000"));
 
-        if(__log.isDebugEnabled()){
-            __log.debug("http.idle.connection.timeout="+idleConnectionTimeout);
-            __log.debug("http.idle.connection.check.interval="+idleConnectionCheckInterval);
+        if (__log.isDebugEnabled()) {
+            __log.debug("http.idle.connection.timeout=" + idleConnectionTimeout);
+            __log.debug("http.idle.connection.check.interval=" + idleConnectionCheckInterval);
         }
         idleConnectionTimeoutThread.setConnectionTimeout(idleConnectionTimeout);
         idleConnectionTimeoutThread.setTimeoutInterval(idleConnectionCheckInterval);
@@ -647,7 +659,7 @@ public class ODEServer {
     private void registerEventListeners() {
         String listenersStr = _odeConfig.getEventListeners();
         if (listenersStr != null) {
-            for (StringTokenizer tokenizer = new StringTokenizer(listenersStr, ",;"); tokenizer.hasMoreTokens();) {
+            for (StringTokenizer tokenizer = new StringTokenizer(listenersStr, ",;"); tokenizer.hasMoreTokens(); ) {
                 String listenerCN = tokenizer.nextToken();
                 try {
                     _bpelServer.registerBpelEventListener((BpelEventListener) Class.forName(listenerCN).newInstance());
@@ -664,7 +676,7 @@ public class ODEServer {
     private void registerMexInterceptors() {
         String listenersStr = _odeConfig.getMessageExchangeInterceptors();
         if (listenersStr != null) {
-            for (StringTokenizer tokenizer = new StringTokenizer(listenersStr, ",;"); tokenizer.hasMoreTokens();) {
+            for (StringTokenizer tokenizer = new StringTokenizer(listenersStr, ",;"); tokenizer.hasMoreTokens(); ) {
                 String interceptorCN = tokenizer.nextToken();
                 try {
                     _bpelServer.registerMessageExchangeInterceptor((MessageExchangeInterceptor) Class.forName(interceptorCN).newInstance());
@@ -752,15 +764,15 @@ public class ODEServer {
                 __log.debug("Ignoring store event: " + pse);
         }
 
-        if( pconf != null ) {
-            if( pse.type == ProcessStoreEvent.Type.UNDEPLOYED) {
+        if (pconf != null) {
+            if (pse.type == ProcessStoreEvent.Type.UNDEPLOYED) {
                 __log.debug("Cancelling all cron scheduled jobs on store event: " + pse);
                 _bpelServer.getContexts().cronScheduler.cancelProcessCronJobs(pse.pid, true);
             }
 
             // Except for undeploy event, we need to re-schedule process dependent jobs
             __log.debug("(Re)scheduling cron scheduled jobs on store event: " + pse);
-            if( pse.type != ProcessStoreEvent.Type.UNDEPLOYED) {
+            if (pse.type != ProcessStoreEvent.Type.UNDEPLOYED) {
                 _bpelServer.getContexts().cronScheduler.scheduleProcessCronJobs(pse.pid, pconf);
             }
         }

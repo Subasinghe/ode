@@ -16,26 +16,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
-/*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
- */
-
 package org.apache.ode.axis2.deploy;
 
 import org.apache.commons.logging.Log;
@@ -54,6 +34,8 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.apache.ode.clustering.hazelcast.HazelcastClusterImpl;
+
 /**
  * Polls a directory for the deployment of a new deployment unit.
  */
@@ -61,7 +43,9 @@ public class DeploymentPoller {
 
     private static Log __log = LogFactory.getLog(DeploymentPoller.class);
 
-    /** The polling interval. */
+    /**
+     * The polling interval.
+     */
     private static final long POLL_TIME = 3000;
 
     private File _deployDir;
@@ -79,14 +63,18 @@ public class DeploymentPoller {
     @SuppressWarnings("unchecked")
     private WatchDog _systemCronConfigWatchDog;
 
-    /** Filter accepting directories containing a ode dd file. */
+    /**
+     * Filter accepting directories containing a ode dd file.
+     */
     private static final FileFilter _fileFilter = new FileFilter() {
         public boolean accept(File path) {
             return new File(path, "deploy.xml").exists();
         }
     };
 
-    /** Filter accepting *.deployed files. */
+    /**
+     * Filter accepting *.deployed files.
+     */
     private static final FileFilter _deployedFilter = new FileFilter() {
         public boolean accept(File path) {
             return path.isFile() && path.getName().endsWith(".deployed");
@@ -120,7 +108,10 @@ public class DeploymentPoller {
     }
 
     protected boolean isDeploymentFromODEFileSystemAllowed() {
-        return true;
+        if (_odeServer.isClusteringEnabled()) {
+            if (_odeServer.getBpelServer().getContexts().hazelcastClusterImpl.getIsMaster()) return true;
+            else return false;
+        } else return true;
     }
 
     /**
@@ -138,7 +129,7 @@ public class DeploymentPoller {
                 File deployedMarker = new File(_deployDir, file.getName() + ".deployed");
 
                 if (!deployXml.exists()) {
-                    // Skip if deploy.xml is abset
+                    // Skip if deploy.xml is absent
                     if (__log.isDebugEnabled()) {
                         __log.debug("Not deploying " + file + " (missing deploy.xml)");
                     }
@@ -155,8 +146,8 @@ public class DeploymentPoller {
                     boolean isCreated = deployedMarker.createNewFile();
                     if (!isCreated) {
                         __log.error("Error while creating  file "
-                                        + file.getName()
-                                        + ".deployed ,deployment could be inconsistent");
+                                + file.getName()
+                                + ".deployed ,deployment could be inconsistent");
                     }
                 } catch (IOException e1) {
                     __log.error("Error creating deployed marker file, " + file + " will not be deployed");
@@ -171,7 +162,7 @@ public class DeploymentPoller {
 
                 try {
                     Collection<QName> deployed = _odeServer.getProcessStore().deploy(file);
-                    __log.info("Deployment of artifact " + file.getName() + " successful: " + deployed );
+                    __log.info("Deployment of artifact " + file.getName() + " successful: " + deployed);
                 } catch (Exception e) {
                     __log.error("Deployment of " + file.getName() + " failed, aborting for now.", e);
                 }
@@ -188,8 +179,8 @@ public class DeploymentPoller {
                 boolean isDeleted = file.delete();
                 if (!isDeleted) {
                     __log.error("Error while deleting file "
-                                    + file.getName()
-                                    + ".deployed , please check if file is locked or if it really exist");
+                            + file.getName()
+                            + ".deployed , please check if file is locked or if it really exist");
                 }
                 disposeDeployXmlWatchDog(deployDir);
                 if (undeployed.size() > 0)
@@ -203,7 +194,7 @@ public class DeploymentPoller {
     @SuppressWarnings("unchecked")
     protected WatchDog ensureDeployXmlWatchDog(File deployFolder, File deployXml) {
         WatchDog ddWatchDog = dDWatchDogsByPath.get(deployXml.getAbsolutePath());
-        if( ddWatchDog == null ) {
+        if (ddWatchDog == null) {
             ddWatchDog = WatchDog.watchFile(deployXml, new DDWatchDogObserver(deployFolder.getName()));
             dDWatchDogsByPath.put(deployXml.getAbsolutePath(), ddWatchDog);
         }
@@ -227,11 +218,11 @@ public class DeploymentPoller {
     @SuppressWarnings("unchecked")
     protected WatchDog createSystemCronConfigWatchDog(final CronScheduler cronScheduler) {
         return WatchDog.watchFile(_systemSchedulesConf.getSchedulesFile(),
-            new WatchDog.DefaultObserver() {
-                public void init() {
-                    cronScheduler.refreshSystemCronJobs(_systemSchedulesConf);
-                }
-            });
+                new WatchDog.DefaultObserver() {
+                    public void init() {
+                        cronScheduler.refreshSystemCronJobs(_systemSchedulesConf);
+                    }
+                });
     }
 
     @SuppressWarnings("unchecked")
@@ -249,7 +240,9 @@ public class DeploymentPoller {
             setName("DeploymentPoller");
         }
 
-        /** Stop this poller, and block until it terminates. */
+        /**
+         * Stop this poller, and block until it terminates.
+         */
         void kill() {
             synchronized (this) {
                 _active = false;
@@ -323,5 +316,9 @@ public class DeploymentPoller {
         public void init() {
             _odeServer.getProcessStore().refreshSchedules(deploymentPakage);
         }
+    }
+
+    public ODEServer get_odeServer() {
+        return _odeServer;
     }
 }

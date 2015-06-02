@@ -65,7 +65,7 @@ import org.w3c.dom.Node;
  * @author mriou
  * @author Maciej Szefler <mszefler at gmail dot com>
  */
-class DeploymentUnitDir {
+public class DeploymentUnitDir {
 
 
     private static Log __log = LogFactory.getLog(DeploymentUnitDir.class);

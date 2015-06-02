@@ -55,6 +55,7 @@ import org.apache.axis2.util.Utils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.commons.lang.StringUtils;
+import org.apache.ode.axis2.ODEServer;
 import org.apache.ode.axis2.OdeFault;
 import org.apache.ode.axis2.deploy.DeploymentPoller;
 import org.apache.ode.axis2.hooks.ODEAxisService;
@@ -65,6 +66,7 @@ import org.apache.ode.il.OMUtils;
 import org.apache.ode.utils.fs.FileUtils;
 import org.apache.ode.utils.Namespaces;
 
+import org.apache.ode.clustering.hazelcast.HazelcastClusterImpl;
 /**
  * Axis wrapper for process deployment.
  */
@@ -79,10 +81,9 @@ public class DeploymentWebService {
     private DeploymentPoller _poller;
     private ProcessStore _store;
 
-
     public DeploymentWebService() {
-        _pmapi = OMAbstractFactory.getOMFactory().createOMNamespace("http://www.apache.org/ode/pmapi","pmapi");
-        _deployapi = OMAbstractFactory.getOMFactory().createOMNamespace("http://www.apache.org/ode/deployapi","deployapi");
+        _pmapi = OMAbstractFactory.getOMFactory().createOMNamespace("http://www.apache.org/ode/pmapi", "pmapi");
+        _deployapi = OMAbstractFactory.getOMFactory().createOMNamespace("http://www.apache.org/ode/deployapi", "deployapi");
     }
 
     public void enableService(AxisConfiguration axisConfig, ProcessStore store,
@@ -109,137 +110,139 @@ public class DeploymentWebService {
             String operation = messageContext.getAxisOperation().getName().getLocalPart();
             SOAPFactory factory = getSOAPFactory(messageContext);
             boolean unknown = false;
+            ODEServer odeServer = _poller.get_odeServer();
 
             try {
                 if (operation.equals("deploy")) {
-                    OMElement deployElement = messageContext.getEnvelope().getBody().getFirstElement();
-                    OMElement namePart = deployElement.getFirstChildWithName(new QName(null, "name"));
-                    // "be liberal in what you accept from others"
-                    if (namePart == null) {
-                       namePart = OMUtils.getFirstChildWithName(deployElement, "name");
-                       if( namePart == null ) {
-                               throw new OdeFault("The name part is missing");
-                       } else if (__log.isWarnEnabled()) {
-                            __log.warn("Invalid incoming request detected for operation " + messageContext.getAxisOperation().getName() + ". Name part should have no namespace but has " + namePart.getQName().getNamespaceURI());
-                        }
-                    }
-
-                    OMElement packagePart = deployElement.getFirstChildWithName(new QName(null, "package"));
-
-                    // "be liberal in what you accept from others"
-                    if (packagePart == null) {
-                        packagePart = OMUtils.getFirstChildWithName(deployElement, "package");
-                        if (packagePart != null && __log.isWarnEnabled()) {
-                            __log.warn("Invalid incoming request detected for operation " + messageContext.getAxisOperation().getName() + ". Package part should have no namespace but has " + packagePart.getQName().getNamespaceURI());
-                        }
-                    }
-
-                    OMElement zip = null;
-                    if (packagePart != null) {
-                        zip = packagePart.getFirstChildWithName(new QName(Namespaces.ODE_DEPLOYAPI_NS, "zip"));
+                    if (!odeServer.isClusteringEnabled() || odeServer.getBpelServer().getContexts().hazelcastClusterImpl.getIsMaster()) {
+                        OMElement deployElement = messageContext.getEnvelope().getBody().getFirstElement();
+                        OMElement namePart = deployElement.getFirstChildWithName(new QName(null, "name"));
                         // "be liberal in what you accept from others"
-                        if (zip == null) {
-                            zip = OMUtils.getFirstChildWithName(packagePart, "zip");
-                            if (zip != null && __log.isWarnEnabled()) {
-                                String ns = zip.getQName().getNamespaceURI() == null || zip.getQName().getNamespaceURI().length() == 0 ? "empty" : zip.getQName().getNamespaceURI();
-                                __log.warn("Invalid incoming request detected for operation " + messageContext.getAxisOperation().getName() + ". <zip/> element namespace should be " + Namespaces.ODE_DEPLOYAPI_NS + " but was " + ns);
+                        if (namePart == null) {
+                            namePart = OMUtils.getFirstChildWithName(deployElement, "name");
+                            if (namePart == null) {
+                                throw new OdeFault("The name part is missing");
+                            } else if (__log.isWarnEnabled()) {
+                                __log.warn("Invalid incoming request detected for operation " + messageContext.getAxisOperation().getName() + ". Name part should have no namespace but has " + namePart.getQName().getNamespaceURI());
                             }
                         }
-                    }
 
-                    if (zip == null || packagePart == null)
-                        throw new OdeFault("Your message should contain an element named 'package' with a 'zip' element");
+                        OMElement packagePart = deployElement.getFirstChildWithName(new QName(null, "package"));
 
-                    String bundleName = namePart.getText().trim();
-                    if (!validBundleName(namePart.getText()))
-                        throw new OdeFault("Invalid bundle name, only non empty alpha-numerics and _ strings are allowed.");
-
-                    OMText binaryNode = (OMText) zip.getFirstOMChild();
-                    if (binaryNode == null) {
-                        throw new OdeFault("Empty binary node under <zip> element");
-                    }
-                    binaryNode.setOptimize(true);
-                    try {
-                        // We're going to create a directory under the deployment root and put
-                        // files in there. The poller shouldn't pick them up so we're asking
-                        // it to hold on for a while.
-                        _poller.hold();
-
-                        File dest = new File(_deployPath, bundleName + "-" + _store.getCurrentVersion());
-                        boolean createDir = dest.mkdir();
-                        if(!createDir){
-                        	throw new OdeFault("Error while creating file " + dest.getName());
-                        }
-                        unzip(dest, (DataHandler) binaryNode.getDataHandler());
-
-                        // Check that we have a deploy.xml
-                        File deployXml = new File(dest, "deploy.xml");
-                        if (!deployXml.exists())
-                            throw new OdeFault("The deployment doesn't appear to contain a deployment " +
-                                    "descriptor in its root directory named deploy.xml, aborting.");
-
-                        Collection<QName> deployed = _store.deploy(dest);
-
-                        File deployedMarker = new File(_deployPath, dest.getName() + ".deployed");
-                        if(!deployedMarker.createNewFile()) {
-                        	throw new OdeFault("Error while creating file " + deployedMarker.getName() + "deployment failed");
+                        // "be liberal in what you accept from others"
+                        if (packagePart == null) {
+                            packagePart = OMUtils.getFirstChildWithName(deployElement, "package");
+                            if (packagePart != null && __log.isWarnEnabled()) {
+                                __log.warn("Invalid incoming request detected for operation " + messageContext.getAxisOperation().getName() + ". Package part should have no namespace but has " + packagePart.getQName().getNamespaceURI());
+                            }
                         }
 
-                        // Telling the poller what we deployed so that it doesn't try to deploy it again
-                        _poller.markAsDeployed(dest);
-                        __log.info("Deployment of artifact " + dest.getName() + " successful.");
+                        OMElement zip = null;
+                        if (packagePart != null) {
+                            zip = packagePart.getFirstChildWithName(new QName(Namespaces.ODE_DEPLOYAPI_NS, "zip"));
+                            // "be liberal in what you accept from others"
+                            if (zip == null) {
+                                zip = OMUtils.getFirstChildWithName(packagePart, "zip");
+                                if (zip != null && __log.isWarnEnabled()) {
+                                    String ns = zip.getQName().getNamespaceURI() == null || zip.getQName().getNamespaceURI().length() == 0 ? "empty" : zip.getQName().getNamespaceURI();
+                                    __log.warn("Invalid incoming request detected for operation " + messageContext.getAxisOperation().getName() + ". <zip/> element namespace should be " + Namespaces.ODE_DEPLOYAPI_NS + " but was " + ns);
+                                }
+                            }
+                        }
 
-                        OMElement response = factory.createOMElement("response", null);
+                        if (zip == null || packagePart == null)
+                            throw new OdeFault("Your message should contain an element named 'package' with a 'zip' element");
 
-                        if (__log.isDebugEnabled()) __log.debug("Deployed package: "+dest.getName());
-                        OMElement d = factory.createOMElement("name", _deployapi);
-                        d.setText(dest.getName());
-                        response.addChild(d);
+                        String bundleName = namePart.getText().trim();
+                        if (!validBundleName(namePart.getText()))
+                            throw new OdeFault("Invalid bundle name, only non empty alpha-numerics and _ strings are allowed.");
 
-                        for (QName pid : deployed) {
-                            if (__log.isDebugEnabled()) __log.debug("Deployed PID: "+pid);
-                            d = factory.createOMElement("id", _deployapi);
-                            d.setText(pid);
+                        OMText binaryNode = (OMText) zip.getFirstOMChild();
+                        if (binaryNode == null) {
+                            throw new OdeFault("Empty binary node under <zip> element");
+                        }
+                        binaryNode.setOptimize(true);
+                        try {
+                            // We're going to create a directory under the deployment root and put
+                            // files in there. The poller shouldn't pick them up so we're asking
+                            // it to hold on for a while.
+                            _poller.hold();
+
+                            File dest = new File(_deployPath, bundleName + "-" + _store.getCurrentVersion());
+                            boolean createDir = dest.mkdir();
+                            if (!createDir) {
+                                throw new OdeFault("Error while creating file " + dest.getName());
+                            }
+                            unzip(dest, (DataHandler) binaryNode.getDataHandler());
+
+                            // Check that we have a deploy.xml
+                            File deployXml = new File(dest, "deploy.xml");
+                            if (!deployXml.exists())
+                                throw new OdeFault("The deployment doesn't appear to contain a deployment " +
+                                        "descriptor in its root directory named deploy.xml, aborting.");
+                            Collection<QName> deployed = _store.deploy(dest);
+
+                            File deployedMarker = new File(_deployPath, dest.getName() + ".deployed");
+                            if (!deployedMarker.createNewFile()) {
+                                throw new OdeFault("Error while creating file " + deployedMarker.getName() + "deployment failed");
+                            }
+
+                            // Telling the poller what we deployed so that it doesn't try to deploy it again
+                            _poller.markAsDeployed(dest);
+                            __log.info("Deployment of artifact " + dest.getName() + " successful.");
+
+                            OMElement response = factory.createOMElement("response", null);
+
+                            if (__log.isDebugEnabled()) __log.debug("Deployed package: " + dest.getName());
+                            OMElement d = factory.createOMElement("name", _deployapi);
+                            d.setText(dest.getName());
                             response.addChild(d);
+
+                            for (QName pid : deployed) {
+                                if (__log.isDebugEnabled()) __log.debug("Deployed PID: " + pid);
+                                d = factory.createOMElement("id", _deployapi);
+                                d.setText(pid);
+                                response.addChild(d);
+                            }
+                            sendResponse(factory, messageContext, "deployResponse", response);
+                        } finally {
+                            _poller.release();
                         }
-                        sendResponse(factory, messageContext, "deployResponse", response);
-                    } finally {
-                        _poller.release();
-                    }
-                } else if (operation.equals("undeploy")) {
-                    OMElement part = messageContext.getEnvelope().getBody().getFirstElement().getFirstElement();
-                    if (part == null) throw new OdeFault("Missing bundle name in undeploy message.");
+                    } else if (operation.equals("undeploy")) {
+                        OMElement part = messageContext.getEnvelope().getBody().getFirstElement().getFirstElement();
+                        if (part == null) throw new OdeFault("Missing bundle name in undeploy message.");
 
-                    String pkg = part.getText().trim();
-                    if (!validBundleName(pkg)) {
-                        throw new OdeFault("Invalid bundle name, only non empty alpha-numerics and _ strings are allowed.");
-                    }
+                        String pkg = part.getText().trim();
+                        if (!validBundleName(pkg)) {
+                            throw new OdeFault("Invalid bundle name, only non empty alpha-numerics and _ strings are allowed.");
+                        }
 
-                    File deploymentDir = new File(_deployPath, pkg);
-                    if (!deploymentDir.exists())
-                        throw new OdeFault("Couldn't find deployment package " + pkg + " in directory " + _deployPath);
+                        File deploymentDir = new File(_deployPath, pkg);
+                        if (!deploymentDir.exists())
+                            throw new OdeFault("Couldn't find deployment package " + pkg + " in directory " + _deployPath);
 
-                    try {
-                        // We're going to delete files & directories under the deployment root.
-                        // Put the poller on hold to avoid undesired side effects
-                        _poller.hold();
+                        try {
+                            // We're going to delete files & directories under the deployment root.
+                            // Put the poller on hold to avoid undesired side effects
+                            _poller.hold();
 
-                        Collection<QName> undeployed = _store.undeploy(deploymentDir);
+                            Collection<QName> undeployed = _store.undeploy(deploymentDir);
 
-                        File deployedMarker = new File(deploymentDir + ".deployed");
-                        boolean isDeleted = deployedMarker.delete();
+                            File deployedMarker = new File(deploymentDir + ".deployed");
+                            boolean isDeleted = deployedMarker.delete();
 
-                        if (!isDeleted)
-                            __log.error("Error while deleting file " + deployedMarker.getName());
+                            if (!isDeleted)
+                                __log.error("Error while deleting file " + deployedMarker.getName());
 
-                        FileUtils.deepDelete(deploymentDir);
+                            FileUtils.deepDelete(deploymentDir);
 
-                        OMElement response = factory.createOMElement("response", null);
-                        response.setText("" + (undeployed.size() > 0));
-                        sendResponse(factory, messageContext, "undeployResponse", response);
-                        _poller.markAsUndeployed(deploymentDir);
-                    } finally {
-                        _poller.release();
+                            OMElement response = factory.createOMElement("response", null);
+                            response.setText("" + (undeployed.size() > 0));
+                            sendResponse(factory, messageContext, "undeployResponse", response);
+                            _poller.markAsUndeployed(deploymentDir);
+                        } finally {
+                            _poller.release();
+                        }
                     }
                 } else if (operation.equals("listDeployedPackages")) {
                     Collection<String> packageNames = _store.getPackages();
@@ -296,8 +299,8 @@ public class DeploymentWebService {
                 ZipInputStream zis = new ZipInputStream(dataHandler.getDataSource().getInputStream());
                 ZipEntry entry;
                 // Processing the package
-                while((entry = zis.getNextEntry()) != null) {
-                    if(entry.isDirectory()) {
+                while ((entry = zis.getNextEntry()) != null) {
+                    if (entry.isDirectory()) {
                         if (__log.isDebugEnabled()) {
                             __log.debug("Extracting directory: " + entry.getName());
                         }
@@ -347,11 +350,10 @@ public class DeploymentWebService {
             throws IOException {
         byte[] buffer = new byte[1024];
         int len;
-        while((len = in.read(buffer)) >= 0)
+        while ((len = in.read(buffer)) >= 0)
             out.write(buffer, 0, len);
         out.close();
     }
-
 
 
 }

@@ -36,23 +36,28 @@ public class HazelcastClusterImpl implements HazelcastCluster{
 
     private HazelcastInstance _hazelcastInstance;
     private boolean isMaster = false;
+    private String message = "";
     private Member leader;
 
-    public HazelcastClusterImpl(HazelcastInstance hazelcastInstance ){
+    public HazelcastClusterImpl(HazelcastInstance hazelcastInstance) {
         _hazelcastInstance = hazelcastInstance;
         init();
     }
 
     public void init() {
         // Registering this node in the cluster.
-        _hazelcastInstance.getCluster().addMembershipListener(new MemberShipListener());
+        _hazelcastInstance.getCluster().addMembershipListener(new ClusterMemberShipListener());
+
+        // Register for listening to message listener
+        ITopic<String> clusterMessageTopic = _hazelcastInstance.getTopic("clusterMsg");
+        clusterMessageTopic.addMessageListener(new ClusterMessageListener());
 
         Member localMember = _hazelcastInstance.getCluster().getLocalMember();
         String localMemberID = getHazelCastNodeID(localMember);
         isLeader();
         __log.info("Registering HZ localMember ID " + localMemberID);
         _hazelcastInstance.getMap(HazelcastConstants.ODE_CLUSTER_NODE_MAP)
-                .put(localMemberID,isMaster);
+                .put(localMemberID, isMaster);
     }
 
     public String getHazelCastNodeID(Member member) {
@@ -61,7 +66,7 @@ public class HazelcastClusterImpl implements HazelcastCluster{
         return hostName + ":" + port;
     }
 
-    class MemberShipListener implements MembershipListener{
+    class ClusterMemberShipListener implements MembershipListener {
 
         @Override
         public void memberAdded(MembershipEvent membershipEvent) {
@@ -75,7 +80,7 @@ public class HazelcastClusterImpl implements HazelcastCluster{
             if (isMaster) {
                 String leftMemberID = getHazelCastNodeID(membershipEvent.getMember());
                 _hazelcastInstance.getMap(HazelcastConstants.ODE_CLUSTER_NODE_MAP).remove(leftMemberID);
-                _hazelcastInstance.getMap(HazelcastConstants.ODE_CLUSTER_NODE_MAP).replace(getHazelCastNodeID(leader),isMaster);
+                _hazelcastInstance.getMap(HazelcastConstants.ODE_CLUSTER_NODE_MAP).replace(getHazelCastNodeID(leader), isMaster);
             }
         }
 
@@ -84,6 +89,14 @@ public class HazelcastClusterImpl implements HazelcastCluster{
             // Noting to do here.
         }
     }
+
+    class ClusterMessageListener implements MessageListener<String> {
+        @Override
+        public void onMessage(Message<String> msg) {
+            message = msg.getMessageObject();
+        }
+    }
+
 
     public void isLeader() {
         leader = _hazelcastInstance.getCluster().getMembers().iterator().next();
@@ -101,8 +114,11 @@ public class HazelcastClusterImpl implements HazelcastCluster{
         return nodeList;
     }
 
-    public boolean getIsMaster(){
+    public boolean getIsMaster() {
         return isMaster;
     }
 
+    public String getMessage() {
+        return message;
+    }
 }
