@@ -114,7 +114,7 @@ public class DeploymentWebService {
 
             try {
                 if (operation.equals("deploy")) {
-                    if (!odeServer.isClusteringEnabled() || odeServer.getBpelServer().getContexts().hazelcastClusterImpl.getIsMaster()) {
+                    if (!odeServer.getClusteringState() || odeServer.getBpelServer().getContexts().hazelcastClusterImpl.getIsMaster()) {
                         OMElement deployElement = messageContext.getEnvelope().getBody().getFirstElement();
                         OMElement namePart = deployElement.getFirstChildWithName(new QName(null, "name"));
                         // "be liberal in what you accept from others"

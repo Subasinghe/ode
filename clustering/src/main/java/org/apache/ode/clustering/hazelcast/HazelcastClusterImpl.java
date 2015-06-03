@@ -22,16 +22,18 @@ import com.hazelcast.core.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Observable;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import org.apache.ode.bpel.hzapi.HazelcastCluster;
 
+
 /**
  * This class implements necessary methods to build the cluster using hazelcast
  */
-public class HazelcastClusterImpl implements HazelcastCluster{
+public class HazelcastClusterImpl extends Observable implements HazelcastCluster{
     private static final Log __log = LogFactory.getLog(HazelcastClusterImpl.class);
 
     private HazelcastInstance _hazelcastInstance;
@@ -102,6 +104,8 @@ public class HazelcastClusterImpl implements HazelcastCluster{
         leader = _hazelcastInstance.getCluster().getMembers().iterator().next();
         if (leader.localMember()) {
             isMaster = true;
+            setChanged();
+            notifyObservers(isMaster);
         }
         __log.info(isMaster);
     }
@@ -121,4 +125,5 @@ public class HazelcastClusterImpl implements HazelcastCluster{
     public String getMessage() {
         return message;
     }
+
 }

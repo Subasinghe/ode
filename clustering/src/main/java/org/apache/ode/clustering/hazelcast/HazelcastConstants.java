@@ -22,7 +22,6 @@ package org.apache.ode.clustering.hazelcast;
  */
 public final class HazelcastConstants {
     public static final String ODE_CLUSTER_NODE_MAP = "ODE_NODE_ID_MAP";
-    public static final String ODE_CLUSTER_DEPLOYMENT_UNITS_MAP = "ODE_CLUSTER_DEPLOYMENT_UNITS_MAP";
 
     private HazelcastConstants() {
     }

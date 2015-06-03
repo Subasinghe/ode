@@ -87,7 +87,7 @@ import com.hazelcast.core.*;
  *
  * @author Matthieu Riou <mriou at apache dot org>
  */
-public class ODEServer {
+public class ODEServer implements Observer{
 
     protected final Log __log = LogFactory.getLog(getClass());
     protected final Log __logTx = LogFactory.getLog("org.apache.ode.tx");
@@ -137,9 +137,9 @@ public class ODEServer {
 
     private HazelcastClusterImpl hazelcastClusterImpl;
 
-    private HazelcastInstance hazelcastInstance;
-
     private String clusteringState = "";
+
+    private boolean isClusteringEnabled;
 
     public void init(ServletConfig config, ConfigurationContext configContext) throws ServletException {
         init(config.getServletContext().getRealPath("/WEB-INF"), configContext);
@@ -468,6 +468,22 @@ public class ODEServer {
         }
     }
 
+    public boolean isClusteringEnabled() {
+        boolean state;
+        if (clusteringState.equals("true")) state = true;
+        else state = false;
+        setClustering(state);
+        return state;
+    }
+
+    public void  setClustering (boolean state) {
+           isClusteringEnabled = state;
+    }
+
+    public boolean getClusteringState() {
+        return isClusteringEnabled;
+    }
+
     /**
      * Initialize the clustering if it is enabled
      */
@@ -481,14 +497,19 @@ public class ODEServer {
             else hazelcastInstanceConfig = new HazelcastInstanceConfig(hzXml);
         }
         if (hazelcastInstanceConfig != null) {
-            hazelcastInstance = hazelcastInstanceConfig.getHazelcastInstance();
-            hazelcastClusterImpl = new HazelcastClusterImpl(hazelcastInstance);
+            hazelcastClusterImpl = new HazelcastClusterImpl(hazelcastInstanceConfig.getHazelcastInstance());
+            hazelcastClusterImpl.addObserver(this);
         }
     }
 
-    public boolean isClusteringEnabled() {
-        if (clusteringState.equals("true")) return true;
-        else return false;
+    /**
+     * Observe when this member becomes Master and then load all the deployment units out of the store.
+     * This is necessary as any node's _deploymentUnits contains only processes, it has deployed.
+     * @param o
+     * @param arg
+     */
+    public void update(Observable o, Object arg) {
+        getProcessStore().loadAll();
     }
 
     /**
@@ -516,10 +537,6 @@ public class ODEServer {
                         new File(_odeConfig.getDeployDir()) :
                         new File(_workRoot, "processes"));
         _store.setConfigDir(_configRoot);
-        if (isClusteringEnabled()) {
-            Map<String, DeploymentUnitDir> deploymentUnits = hazelcastInstance.getMap(HazelcastConstants.ODE_CLUSTER_DEPLOYMENT_UNITS_MAP);
-            _store.setDeploymentUnitsMap(deploymentUnits);
-        }
     }
 
 

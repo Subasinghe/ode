@@ -561,6 +561,7 @@ public class ProcessStoreImpl implements ProcessStore {
         for (ProcessConfImpl p : loaded) {
             try {
                 fireStateChange(p.getProcessId(), p.getState(), p.getDeploymentUnit().getName());
+
             } catch (Exception except) {
                 __log.error("Error while activating process: pid=" + p.getProcessId() + " package="+p.getDeploymentUnit().getName(), except);
             }
@@ -849,10 +850,6 @@ public class ProcessStoreImpl implements ProcessStore {
         if (configDir != null && !configDir.isDirectory())
             throw new IllegalArgumentException("Config directory is not a directory or does not exist: " + configDir);
         this._configDir = configDir;
-    }
-
-    public void setDeploymentUnitsMap(Map<String, DeploymentUnitDir> deploymentUnits) {
-        _deploymentUnits = deploymentUnits;
     }
 
     public static DataSource createInternalDS(String guid) {

@@ -108,8 +108,10 @@ public class DeploymentPoller {
     }
 
     protected boolean isDeploymentFromODEFileSystemAllowed() {
-        if (_odeServer.isClusteringEnabled()) {
-            if (_odeServer.getBpelServer().getContexts().hazelcastClusterImpl.getIsMaster()) return true;
+        if (_odeServer.getClusteringState()) {
+            if (_odeServer.getBpelServer().getContexts().hazelcastClusterImpl.getIsMaster()){
+                return true;
+            }
             else return false;
         } else return true;
     }
