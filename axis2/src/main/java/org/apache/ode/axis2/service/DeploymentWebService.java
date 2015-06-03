@@ -111,10 +111,11 @@ public class DeploymentWebService {
             SOAPFactory factory = getSOAPFactory(messageContext);
             boolean unknown = false;
             ODEServer odeServer = _poller.get_odeServer();
+            boolean clusteringState = odeServer.getClusteringState();
+            boolean isMaster = odeServer.getBpelServer().getContexts().hazelcastClusterImpl.getIsMaster();
 
             try {
                 if (operation.equals("deploy")) {
-                    if (!odeServer.getClusteringState() || odeServer.getBpelServer().getContexts().hazelcastClusterImpl.getIsMaster()) {
                         OMElement deployElement = messageContext.getEnvelope().getBody().getFirstElement();
                         OMElement namePart = deployElement.getFirstChildWithName(new QName(null, "name"));
                         // "be liberal in what you accept from others"
@@ -162,19 +163,20 @@ public class DeploymentWebService {
                             throw new OdeFault("Empty binary node under <zip> element");
                         }
                         binaryNode.setOptimize(true);
-                        try {
-                            // We're going to create a directory under the deployment root and put
-                            // files in there. The poller shouldn't pick them up so we're asking
-                            // it to hold on for a while.
-                            _poller.hold();
+                    try {
+                        // We're going to create a directory under the deployment root and put
+                        // files in there. The poller shouldn't pick them up so we're asking
+                        // it to hold on for a while.
+                        _poller.hold();
 
-                            File dest = new File(_deployPath, bundleName + "-" + _store.getCurrentVersion());
-                            boolean createDir = dest.mkdir();
-                            if (!createDir) {
-                                throw new OdeFault("Error while creating file " + dest.getName());
-                            }
-                            unzip(dest, (DataHandler) binaryNode.getDataHandler());
+                        File dest = new File(_deployPath, bundleName + "-" + _store.getCurrentVersion());
+                        boolean createDir = dest.mkdir();
+                        if (!createDir) {
+                            throw new OdeFault("Error while creating file " + dest.getName());
+                        }
+                        unzip(dest, (DataHandler) binaryNode.getDataHandler());
 
+                        if (!clusteringState || isMaster) {
                             // Check that we have a deploy.xml
                             File deployXml = new File(dest, "deploy.xml");
                             if (!deployXml.exists())
@@ -205,7 +207,8 @@ public class DeploymentWebService {
                                 response.addChild(d);
                             }
                             sendResponse(factory, messageContext, "deployResponse", response);
-                        } finally {
+                        }
+                    }finally {
                             _poller.release();
                         }
                     } else if (operation.equals("undeploy")) {
@@ -244,7 +247,7 @@ public class DeploymentWebService {
                             _poller.release();
                         }
                     }
-                } else if (operation.equals("listDeployedPackages")) {
+                 else if (operation.equals("listDeployedPackages")) {
                     Collection<String> packageNames = _store.getPackages();
                     OMElement response = factory.createOMElement("deployedPackages", null);
                     for (String name : packageNames) {
